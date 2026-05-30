@@ -1,0 +1,90 @@
+//@version=6
+indicator("Codex BTC 1H Support & Resistance Zones v37", overlay=true, max_boxes_count=140, max_labels_count=140)
+pivotLen = input.int(3, "Pivot Strength", minval=1, maxval=20)
+structureLookback = input.int(53, "Structure Lookback", minval=10, maxval=300)
+atrLen = input.int(14, "ATR Length", minval=2, maxval=100)
+zoneAtr = input.float(0.45, "Zone Thickness ATR", minval=0.05, step=0.05)
+impulseAtr = input.float(1.15, "Impulse Away ATR", minval=0.1, step=0.05)
+mergeAtr = input.float(1.2, "Merge Nearby Zones ATR", minval=0.1, step=0.1)
+baseLookback = input.int(8, "Breakout Base Bars", minval=2, maxval=30)
+breakoutLookback = input.int(20, "Breakout Lookback", minval=5, maxval=100)
+baseImpulseAtr = input.float(1.2, "Breakout Base Impulse ATR", minval=0.2, step=0.1)
+maxZonesEachSide = input.int(6, "Visible Zones Each Side", minval=1, maxval=30)
+useBreakoutSupport = input.bool(true, "Add Breakout-Base Support")
+useActiveSupport = input.bool(true, "Add Active Structure Support")
+useRejectionResistance = input.bool(true, "Add Rejection Resistance")
+useBreakdownResistance = input.bool(false, "Add Breakdown-Base Resistance")
+invalidateWickCross = input.bool(true, "Invalidate Wick-Crossed Zones")
+showMidlines = input.bool(true, "Show Zone Midlines")
+longFill = input.color(color.new(color.rgb(0, 62, 180), 72), "Long Zone Fill")
+longBorder = input.color(color.new(color.rgb(55, 120, 255), 12), "Long Zone Border")
+shortFill = input.color(color.new(color.rgb(150, 0, 15), 72), "Short Zone Fill")
+shortBorder = input.color(color.new(color.rgb(255, 70, 85), 12), "Short Zone Border")
+midColor = input.color(color.new(color.white, 72), "Midline Color")
+labelColor = input.color(color.white, "Label Color")
+atr = ta.atr(atrLen)
+pl = ta.pivotlow(low, pivotLen, pivotLen)
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+var array<box> longBoxes = array.new_box()
+var array<label> longLabels = array.new_label()
+var array<line> longMids = array.new_line()
+var array<float> longTop = array.new_float()
+var array<float> longBottom = array.new_float()
+var array<box> shortBoxes = array.new_box()
+var array<label> shortLabels = array.new_label()
+var array<line> shortMids = array.new_line()
+var array<float> shortTop = array.new_float()
+var array<float> shortBottom = array.new_float()
+zoneMid(float top, float bottom) =>
+    (top + bottom) / 2.0
+overlapsExisting(array<float> tops, array<float> bottoms, float top, float bottom, float threshold) =>
+    bool found = false
+    int size = array.size(tops)
+    if size > 0
+        mid = zoneMid(top, bottom)
+        for idx = 0 to size - 1
+            existingMid = zoneMid(array.get(tops, idx), array.get(bottoms, idx))
+            if math.abs(mid - existingMid) <= threshold
+                found := true
+    found
+removeOldest(array<box> boxes, array<label> labels, array<line> mids, array<float> tops, array<float> bottoms) =>
+    if array.size(boxes) > maxZonesEachSide
+        oldBox = array.pop(boxes)
+        oldLabel = array.pop(labels)
+        oldMid = array.pop(mids)
+        array.pop(tops)
+        array.pop(bottoms)
+        box.delete(oldBox)
+        label.delete(oldLabel)
+        line.delete(oldMid)
+addZone(bool isLong, array<box> boxes, array<label> labels, array<line> mids, array<float> tops, array<float> bottoms, int leftBar, float top, float bottom, float mergeDistance) =>
+    mid = zoneMid(top, bottom)
+    txt = isLong ? "LONG ZONE" : "SHORT ZONE"
+    fill = isLong ? longFill : shortFill
+    border = isLong ? longBorder : shortBorder
+    if not overlapsExisting(tops, bottoms, top, bottom, mergeDistance)
+        b = box.new(leftBar, top, bar_index, bottom, xloc=xloc.bar_index, bgcolor=fill, border_color=border, extend=extend.right)
+        l = label.new(leftBar + 1, mid, txt, xloc=xloc.bar_index, style=label.style_none, textcolor=labelColor, color=color.new(color.black, 100), size=size.tiny)
+        m = line.new(leftBar, mid, bar_index, mid, xloc=xloc.bar_index, color=showMidlines ? midColor : color.new(midColor, 100), extend=extend.right, style=line.style_solid, width=1)
+        array.unshift(boxes, b)
+        array.unshift(labels, l)
+        array.unshift(mids, m)
+        array.unshift(tops, top)
+        array.unshift(bottoms, bottom)
+        removeOldest(boxes, labels, mids, tops, bottoms)
+updateZones(array<box> boxes, array<label> labels, array<line> mids, array<float> tops, array<float> bottoms, bool isLong) =>
+    int idx = array.size(boxes)
+    while idx > 0
+        idx -= 1
+        top = array.get(tops, idx)
+        bottom = array.get(bottoms, idx)
+        crossedThrough = isLong ? low < bottom : high > top
+        onCorrectSide = isLong ? close >= bottom : close <= top
+        if invalidateWickCross and crossedThrough
+            box.delete(array.get(boxes, idx))
+            label.delete(array.get(labels, idx))
+            line.delete(array.get(mids, idx))
+            array.remove(boxes, idx)
+            array.remove(labels, idx)
+            array.remove(mids, idx)
+            array.remove(tops, idx)
